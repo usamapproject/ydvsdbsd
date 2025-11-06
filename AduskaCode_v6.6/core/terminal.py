@@ -94,7 +94,8 @@ def make_span(text, state):
     if state.get("italic"): style.append("font-style:italic")
     if state.get("underline"): style.append("text-decoration:underline")
     s = ";".join(style)
-    return f"<span style=\"{s}\">{html.escape(text).replace('  ',' &nbsp;').replace('\\t','&nbsp;&nbsp;&nbsp;&nbsp;')}</span>"
+    content = html.escape(text).replace("  ", " &nbsp;").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
+    return f"<span style=\"{s}\">{content}</span>"
 
 def ansi_to_html(s: str, state=None):
     if state is None: state = {}
@@ -136,6 +137,9 @@ class TerminalWidget(QWidget):
             args = ["-i"]
 
         self.proc.setProgram(program); self.proc.setArguments(args)
+        if os.name == "nt":
+            # ensure the shell uses UTF-8 for proper character rendering
+            self.proc.started.connect(lambda: self.proc.write("chcp 65001\r\n".encode()))
         self.proc.readyReadStandardOutput.connect(self._stdout)
         self.proc.readyReadStandardError.connect(self._stderr)
         self.proc.start()
@@ -159,9 +163,11 @@ class TerminalWidget(QWidget):
 
     def _send(self):
         t = self.inp.text()
-        if not t.endswith("\n"): t += "\n"
+        newline = "\r\n" if os.name == "nt" else "\n"
+        t = t.rstrip("\r\n") + newline
         self.proc.write(t.encode()); self.inp.clear()
 
     def run_command(self, command: str):
-        if not command.endswith("\n"): command += "\n"
+        newline = "\r\n" if os.name == "nt" else "\n"
+        command = command.rstrip("\r\n") + newline
         self.proc.write(command.encode())
