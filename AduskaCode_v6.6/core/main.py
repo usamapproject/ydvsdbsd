@@ -1,9 +1,9 @@
 
 # -*- coding: utf-8 -*-
-import sys, json, os
+import sys, json, os, shlex, subprocess
 from pathlib import Path
-from PyQt5.QtCore import Qt, QDir, QSettings, QSize, QTimer
-from PyQt5.QtGui import QKeySequence, QPalette, QColor, QFont
+from PyQt5.QtCore import Qt, QDir, QSettings, QSize, QTimer, QUrl
+from PyQt5.QtGui import QKeySequence, QPalette, QColor, QFont, QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QAction, QTreeView, QFileSystemModel,
     QSplitter, QWidget, QVBoxLayout, QTabWidget, QMessageBox, QToolBar, QStatusBar,
@@ -178,6 +178,7 @@ class ExtensionManager(QDialog):
 
     def _install(self):
         ext_dir = Path(__file__).resolve().parent.parent / "extensions"
+        ext_dir.mkdir(parents=True, exist_ok=True)
         path, _ = QFileDialog.getOpenFileName(self, "Install Extension", str(ext_dir), "Extensions (*.extend)")
         if not path: return
         try:
@@ -191,8 +192,11 @@ class ExtensionManager(QDialog):
         self._refresh()
 
     def _open_dir(self):
-        path = str(Path(__file__).resolve().parent.parent / "extensions")
-        QMessageBox.information(self, "Extensions Folder", path)
+        ext_dir = Path(__file__).resolve().parent.parent / "extensions"
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        url = QUrl.fromLocalFile(str(ext_dir))
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.information(self, "Extensions Folder", str(ext_dir))
 
 
 class MainWindow(QMainWindow):
@@ -202,7 +206,18 @@ class MainWindow(QMainWindow):
         self.resize(1360, 900)
 
         self.settings = QSettings(ORG, APP_NAME)
-        self.workspace_dir = Path(self.settings.value("workspace_dir", str(Path.home())))
+        stored_workspace = self.settings.value("workspace_dir", str(Path.home()))
+        try:
+            workspace = Path(stored_workspace).expanduser()
+        except Exception:
+            workspace = Path.home()
+        try:
+            workspace = workspace.resolve()
+        except Exception:
+            pass
+        if not workspace.exists():
+            workspace = Path.home()
+        self.workspace_dir = workspace
         self.themes = {}
         self.current_theme = None
         self.custom_menus = {}
@@ -750,7 +765,11 @@ class MainWindow(QMainWindow):
         if d: self.set_workspace(Path(d))
 
     def set_workspace(self, path: Path):
-        self.workspace_dir = Path(path)
+        try:
+            resolved = Path(path).expanduser().resolve()
+        except Exception:
+            resolved = Path(path).expanduser()
+        self.workspace_dir = resolved
         self.settings.setValue("workspace_dir", str(self.workspace_dir))
         self.fs_model.setRootPath(str(self.workspace_dir))
         self.explorer.setRootIndex(self.fs_model.index(str(self.workspace_dir)))
@@ -933,8 +952,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Run", "Open a .py file to run (F5)."); return
         if isinstance(w, CodeEditor) and w.document().isModified():
             self.save_current()
-        cmd = f'python "{path}"'
-        self.terminal.run_command(cmd + "\n")
+        python_exe = sys.executable if sys.executable else "python"
+        if os.name == "nt":
+            cmd = subprocess.list2cmdline([python_exe, str(path)])
+        else:
+            cmd = shlex.join([python_exe, str(path)])
+        self.terminal.run_command(cmd)
         self.status.showMessage(f"Running: {cmd}", 3000)
 
     def find_dialog(self): self._focus_search()
